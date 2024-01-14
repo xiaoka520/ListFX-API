@@ -1,5 +1,6 @@
 ## ListFX-API
 ListFX的图片API库
-## TODO
-[ ]添加对白天夜晚的分类
+## 开源协议
+基于[WTFPL](http://www.wtfpl.net/)协议开源
+
 
