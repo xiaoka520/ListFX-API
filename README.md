@@ -9,6 +9,6 @@ ListFX的图片API库
 ## 鸣谢
 1.[Imagemagick](https://imagemagick.org/)<br/>
 2.[jsDelivr](https://www.jsdelivr.net/)<br/>
-没有以上网站/工具的支持我们无法创造出如此优秀的项目<br/>
+没有以上网站/工具的支持我们无法创造出这样~~如此优秀~~的项目<br/>
 ## 开源协议
 基于[WTFPL](http://www.wtfpl.net/)协议开源
