@@ -1,0 +1,45 @@
+# .github/workflows/generate_photos_txt.yml
+name: Generate WebP Photos List
+
+on:
+  schedule:
+    - cron: '0 0 * * *'  # 每天UTC 0点执行
+  push:
+    paths:
+      - 'img/**'          # 当img目录有变更时触发
+
+jobs:
+  generate-list:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0  # 获取完整历史记录
+
+      - name: Generate jsDelivr links for WebP
+        run: |
+          # 创建临时目录
+          mkdir -p tmp
+          
+          # 1. 查找所有webp图片（包括子目录）
+          find img/ -type f -iname "*.webp" > tmp/all_webp.txt
+          
+          # 2. 生成带CDN加速的链接
+          cat tmp/all_webp.txt | while read -r file; do
+            # 移除前面的img/路径
+            relative_path="${file#img/}"
+            
+            # 生成jsDelivr加速链接
+            echo "https://cdn.jsdelivr.net/gh/${{ github.repository }}/${{ github.sha }}/img/$relative_path"
+          done > photos.txt
+          
+          # 3. 添加计数信息（可选）
+          count=$(wc -l < photos.txt)
+          echo "Generated $count WebP image links"
+
+      - name: Commit changes
+        uses: stefanzweifel/git-auto-commit-action@v5
+        with:
+          commit_message: "Auto: Update photos.txt with $count WebP links"
+          file_pattern: photos.txt
