@@ -123,7 +123,7 @@ jobs:
           debug: true
 
       - name: Upload photos.txt as artifact
-        uses: actions/upload-artifact@v3
+        uses: actions/upload-artifact@v4
         with:
           name: photos-list-${{ github.run_id }}
           path: |
