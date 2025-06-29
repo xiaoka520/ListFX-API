@@ -10,31 +10,41 @@ on:
 jobs:
   generate-list:
     runs-on: ubuntu-latest
+    
+    permissions:
+      contents: write
+      
     steps:
       - name: Checkout repo
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
-
-      - name: Grant write permissions  
-        run: |
-          git config --global user.name "github-actions[bot]"
-          git config --global user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git remote set-url origin https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/${{ github.repository }}
+          token: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Generate jsDelivr links for WebP
         run: |
           mkdir -p tmp
           find img/ -type f -iname "*.webp" > tmp/all_webp.txt
+          
           cat tmp/all_webp.txt | while read -r file; do
             relative_path="${file#img/}"
-            echo "https://cdn.jsdelivr.net/gh/${{ github.repository }}/${{ github.sha }}/img/$relative_path"
+            echo "https://cdn.jsdelivr.net/gh/${{ github.repository }}@${{ github.sha }}/img/$relative_path"
           done > photos.txt
+          
+          if [ ! -f photos.txt ]; then
+            echo "##[error] photos.txt not generated!"
+            exit 1
+          fi
+          
           count=$(wc -l < photos.txt)
           echo "Generated $count WebP image links"
+          
+          echo "count=$count" >> $GITHUB_ENV
 
-      - name: Commit changes
-        uses: stefanzweifel/git-auto-commit-action@v5
-        with:
-          commit_message: "Auto: Update photos.txt with $count WebP links"
-          file_pattern: photos.txt
+      - name: Commit and push changes
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add photos.txt
+          git commit -m "Auto: Update photos.txt with $count WebP links" || echo "No changes to commit"
+          git push origin HEAD:${{ github.ref }}
