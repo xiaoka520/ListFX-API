@@ -2,7 +2,7 @@ name: Generate WebP Photos List with CDN Mirror
 
 on:
   schedule:
-    - cron: '0 0 * * *'  # 每天UTC 0点执行
+    - cron: '0 0 * * *'  # 每天UTC 0点执行（北京时间8点）
   push:
     paths:
       - 'img/**'          # 当img目录有变更时触发
@@ -11,12 +11,21 @@ on:
 jobs:
   generate-list:
     runs-on: ubuntu-latest
+    # 添加必要的权限声明
+    permissions:
+      contents: write   # 必须要有写入权限才能推送
+      issues: write     # 为了能够创建issue
+      pull-requests: write  # 为了能够创建PR（可选）
+      
     steps:
-      - name: Checkout repo
+      - name: Checkout repository
         uses: actions/checkout@v4
         with:
           fetch-depth: 0  # 获取完整历史记录
-          token: ${{ secrets.GITHUB_TOKEN }}
+          token: ${{ secrets.GITHUB_TOKEN }}  # 使用具有写入权限的token
+          # 设置正确的用户信息
+          user-name: 'GitHub Actions'
+          user-email: 'actions@github.com'
 
       - name: Setup environment
         run: |
@@ -24,7 +33,11 @@ jobs:
           sudo timedatectl set-timezone Asia/Shanghai
           # 安装必要的工具
           sudo apt-get update
-          sudo apt-get install -y tree jq
+          sudo apt-get install -y tree jq curl
+          # 显示当前用户和权限
+          whoami
+          groups
+          ls -la
 
       - name: Generate CDN links for WebP
         id: generate-links
@@ -85,6 +98,12 @@ jobs:
           head -3 photos.txt | while read url; do
             echo "- [$url]($url)" >> info.md
           done
+          
+          # 添加CDN状态信息
+          echo "" >> info.md
+          echo "## CDN状态" >> info.md
+          echo "- 主镜像: cdn.mengze.vip" >> info.md
+          echo "- 最后验证时间: $(TZ='Asia/Shanghai' date '+%Y-%m-%d %H:%M:%S')" >> info.md
 
       - name: Commit and push changes
         uses: stefanzweifel/git-auto-commit-action@v5
@@ -96,25 +115,73 @@ jobs:
           commit_user_name: 'GitHub Actions Bot'
           commit_user_email: 'actions@github.com'
           commit_author: 'GitHub Actions <actions@github.com>'
+          # 强制添加所有更改的文件
+          add: '--all'
+          # 显式使用token
+          token: ${{ secrets.GITHUB_TOKEN }}
+          # 在调试模式下运行
+          debug: true
 
       - name: Upload photos.txt as artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v3
         with:
-          name: photos-list
+          name: photos-list-${{ github.run_id }}
           path: |
             photos.txt
             info.md
           retention-days: 7
+
+      - name: Create success report
+        if: ${{ success() }}
+        run: |
+          echo "工作流成功完成！"
+          echo "生成了 ${{ env.LINK_COUNT }} 个图片链接"
+          echo "查看生成的文件: https://github.com/${{ github.repository }}/blob/main/photos.txt"
 
       - name: Notify on failure
         if: ${{ failure() }}
         uses: actions/github-script@v6
         with:
           script: |
-            const { owner, repo } = context.repo;
-            github.rest.issues.createComment({
-              issue_number: context.payload.after ? null : context.issue.number,
-              owner,
-              repo,
-              body: `⚠️ 图片列表生成失败！请检查工作流运行: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}`
-            })
+            try {
+              // 获取最后一次提交信息
+              const commitResponse = await github.rest.repos.getCommit({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                ref: context.sha
+              });
+              
+              const commitMessage = commitResponse.data.commit.message;
+              const committer = commitResponse.data.commit.author ? 
+                commitResponse.data.commit.author.name : 'Unknown';
+              
+              // 创建新的 Issue
+              const issueResponse = await github.rest.issues.create({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                title: '⚠️ 图片列表生成失败',
+                body: `### 工作流运行失败\n
+                       **工作流名称**: ${context.workflow}\n
+                       **运行ID**: [${context.runId}](${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId})\n
+                       **触发事件**: ${context.eventName}\n
+                       **提交信息**: ${commitMessage}\n
+                       **提交者**: ${committer}\n
+                       **提交SHA**: ${context.sha}\n\n
+                       **错误详情**: 请查看工作流运行日志获取详细信息`
+              });
+              
+              console.log(`已创建问题 #${issueResponse.data.number} 来报告失败`);
+              
+            } catch (createError) {
+              console.error('创建问题失败:', createError);
+              
+              // 备选方案：发送到 Slack 或其他服务
+              console.log('尝试备选通知方案...');
+              // 这里可以添加其他通知逻辑
+            }
+
+      - name: Final status report
+        run: |
+          echo "工作流状态: ${{ job.status }}"
+          echo "运行时间: ${{ job.steps.*.conclusion }}"
+          echo "详细日志: https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}"
