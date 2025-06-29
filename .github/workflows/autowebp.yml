@@ -1,50 +1,120 @@
-name: Generate WebP Photos List
+name: Generate WebP Photos List with CDN Mirror
 
 on:
   schedule:
-    - cron: '0 0 * * 1'  # 每周一UTC 0点执行
+    - cron: '0 0 * * *'  # 每天UTC 0点执行
   push:
     paths:
-      - 'img/**'
+      - 'img/**'          # 当img目录有变更时触发
+  workflow_dispatch:      # 允许手动触发
 
 jobs:
   generate-list:
     runs-on: ubuntu-latest
-    
-    permissions:
-      contents: write
-      
     steps:
       - name: Checkout repo
         uses: actions/checkout@v4
         with:
-          fetch-depth: 0
+          fetch-depth: 0  # 获取完整历史记录
           token: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Generate jsDelivr links for WebP
+      - name: Setup environment
         run: |
+          # 设置时区为北京时间
+          sudo timedatectl set-timezone Asia/Shanghai
+          # 安装必要的工具
+          sudo apt-get update
+          sudo apt-get install -y tree jq
+
+      - name: Generate CDN links for WebP
+        id: generate-links
+        run: |
+          # 创建临时目录
           mkdir -p tmp
+          
+          echo "开始处理 WebP 图片..."
+          
+          # 1. 查找所有webp图片（包括子目录）
           find img/ -type f -iname "*.webp" > tmp/all_webp.txt
           
+          # 记录找到的文件数量
+          FILE_COUNT=$(wc -l < tmp/all_webp.txt)
+          echo "找到 $FILE_COUNT 个 WebP 文件"
+          
+          # 2. 生成带国内CDN镜像的链接
+          echo "生成 CDN 链接..."
           cat tmp/all_webp.txt | while read -r file; do
+            # 移除前面的img/路径
             relative_path="${file#img/}"
-            echo "https://cdn.jsdelivr.net/gh/${{ github.repository }}@${{ github.sha }}/img/$relative_path"
+            
+            # 生成国内镜像加速链接
+            echo "https://cdn.mengze.vip/gh/${{ github.repository }}/${{ github.sha }}/img/$relative_path"
           done > photos.txt
           
-          if [ ! -f photos.txt ]; then
-            echo "##[error] photos.txt not generated!"
-            exit 1
-          fi
+          # 3. 添加统计信息
+          LINK_COUNT=$(wc -l < photos.txt)
+          echo "生成 $LINK_COUNT 个有效链接"
           
-          count=$(wc -l < photos.txt)
-          echo "Generated $count WebP image links"
+          # 4. 验证生成的链接
+          echo "验证前5个链接..."
+          head -5 photos.txt | while read url; do
+            if curl --output /dev/null --silent --head --fail --max-time 5 "$url"; then
+              echo "✅ $url 验证通过"
+            else
+              echo "❌ $url 验证失败"
+            fi
+          done
           
-          echo "count=$count" >> $GITHUB_ENV
+          # 保存统计信息供后续步骤使用
+          echo "FILE_COUNT=$FILE_COUNT" >> $GITHUB_ENV
+          echo "LINK_COUNT=$LINK_COUNT" >> $GITHUB_ENV
+          
+          # 显示目录结构 (用于调试)
+          echo "生成后的目录结构:"
+          tree -L 2
+
+      - name: Create README info
+        run: |
+          # 创建简单的README信息
+          echo "# 图片链接列表" > info.md
+          echo "最后更新: $(TZ='Asia/Shanghai' date '+%Y-%m-%d %H:%M:%S')" >> info.md
+          echo "图片数量: ${{ env.FILE_COUNT }}" >> info.md
+          echo "有效链接: ${{ env.LINK_COUNT }}" >> info.md
+          echo "" >> info.md
+          echo "## 示例链接" >> info.md
+          head -3 photos.txt | while read url; do
+            echo "- [$url]($url)" >> info.md
+          done
 
       - name: Commit and push changes
-        run: |
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add photos.txt
-          git commit -m "Auto: Update photos.txt with $count WebP links" || echo "No changes to commit"
-          git push origin HEAD:${{ github.ref }}
+        uses: stefanzweifel/git-auto-commit-action@v5
+        with:
+          commit_message: "Auto: 更新图片列表 (${{ env.LINK_COUNT }} 个链接)"
+          file_pattern: |
+            photos.txt
+            info.md
+          commit_user_name: 'GitHub Actions Bot'
+          commit_user_email: 'actions@github.com'
+          commit_author: 'GitHub Actions <actions@github.com>'
+
+      - name: Upload photos.txt as artifact
+        uses: actions/upload-artifact@v3
+        with:
+          name: photos-list
+          path: |
+            photos.txt
+            info.md
+          retention-days: 7
+
+      - name: Notify on failure
+        if: ${{ failure() }}
+        uses: actions/github-script@v6
+        with:
+          script: |
+            const { owner, repo } = context.repo;
+            github.rest.issues.createComment({
+              issue_number: context.payload.after ? null : context.issue.number,
+              owner,
+              repo,
+              body: `⚠️ 图片列表生成失败！请检查工作流运行: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}`
+            })
