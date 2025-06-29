@@ -20,7 +20,7 @@ jobs:
         with:
           fetch-depth: 0
           token: ${{ secrets.GITHUB_TOKEN }}
-          ref: master  # 明确指定 master 分支
+          ref: main
 
       - name: Setup environment
         run: |
