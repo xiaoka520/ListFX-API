@@ -1,12 +1,11 @@
-# .github/workflows/generate_photos_txt.yml
 name: Generate WebP Photos List
 
 on:
   schedule:
-    - cron: '0 0 * * 1'  # 每天 UTC 0 点执行
+    - cron: '0 0 * * 1'  # 每周一UTC 0点执行
   push:
     paths:
-      - 'img/**'        # 当 img 目录有变更时触发
+      - 'img/**'
 
 jobs:
   generate-list:
@@ -15,7 +14,13 @@ jobs:
       - name: Checkout repo
         uses: actions/checkout@v4
         with:
-          fetch-depth: 0  # 获取完整历史记录
+          fetch-depth: 0
+
+      - name: Grant write permissions  
+        run: |
+          git config --global user.name "github-actions[bot]"
+          git config --global user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git remote set-url origin https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/${{ github.repository }}
 
       - name: Generate jsDelivr links for WebP
         run: |
@@ -33,4 +38,3 @@ jobs:
         with:
           commit_message: "Auto: Update photos.txt with $count WebP links"
           file_pattern: photos.txt
-          fail_on_empty_changes: false
