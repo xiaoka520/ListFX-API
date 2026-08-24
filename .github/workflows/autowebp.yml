@@ -49,7 +49,7 @@ jobs:
             relative_path="${file#img/}"
             
             # 使用分支名（master）而不是commit SHA
-            echo "https://cdn.mengze.vip/gh/${{ github.repository }}@master/img/$relative_path"
+            echo "https://cdn.jsdelivr.net/gh/${{ github.repository }}@master/img/$relative_path"
           done > photos.txt
           
           # 3. 添加统计信息
