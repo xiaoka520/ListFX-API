@@ -13,6 +13,8 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: write
+    env:
+      TZ: Asia/Shanghai
       
     steps:
       - name: Checkout repo
@@ -22,12 +24,6 @@ jobs:
           token: ${{ secrets.GITHUB_TOKEN }}
           ref: main
 
-      - name: Setup environment
-        run: |
-          sudo timedatectl set-timezone Asia/Shanghai
-          sudo apt-get update
-          sudo apt-get install -y tree
-
       - name: Generate CDN links for WebP
         id: generate-links
         run: |
@@ -36,34 +32,36 @@ jobs:
           echo "开始处理 WebP 图片..."
           
           # 1. 查找所有webp图片（包括子目录）
-          find img/ -type f -iname "*.webp" > tmp/all_webp.txt
+          find img/ -type f -iname "*.webp" -print | LC_ALL=C sort > tmp/all_webp.txt
           
           # 记录找到的文件数量
           FILE_COUNT=$(wc -l < tmp/all_webp.txt)
           echo "找到 $FILE_COUNT 个 WebP 文件"
           
-          # 2. 生成带国内CDN镜像的链接（使用分支名而不是commit SHA）
+          # 2. 使用仓库默认分支生成 CDN 链接
           echo "生成 CDN 链接..."
-          cat tmp/all_webp.txt | while read -r file; do
+          CDN_REF="${{ github.event.repository.default_branch }}"
+          while IFS= read -r file; do
             # 移除前面的img/路径
             relative_path="${file#img/}"
             
-            # 使用分支名（master）而不是commit SHA
-            echo "https://cdn.jsdelivr.net/gh/${{ github.repository }}@master/img/$relative_path"
-          done > photos.txt
+            echo "https://cdn.jsdelivr.net/gh/${{ github.repository }}@${CDN_REF}/img/$relative_path"
+          done < tmp/all_webp.txt > photos.txt
           
           # 3. 添加统计信息
           LINK_COUNT=$(wc -l < photos.txt)
           echo "生成 $LINK_COUNT 个有效链接"
           
-          # 4. 验证生成的链接格式
-          echo "验证链接格式..."
-          if grep -q "@master/img/" photos.txt; then
-            echo "链接格式正确"
-          else
-            echo "错误：链接格式不正确"
+          # 4. 验证数量、格式以及首个链接是否可访问
+          echo "验证链接..."
+          if [ "$FILE_COUNT" -eq 0 ] || [ "$FILE_COUNT" -ne "$LINK_COUNT" ]; then
+            echo "错误：图片数量与链接数量不一致"
             exit 1
           fi
+          grep -q "@${CDN_REF}/img/" photos.txt
+          SAMPLE_URL=$(head -n 1 photos.txt)
+          curl --fail --silent --show-error --location --retry 3 --head "$SAMPLE_URL" > /dev/null
+          echo "链接格式及可访问性验证通过"
           
           # 保存统计信息
           echo "FILE_COUNT=$FILE_COUNT" >> $GITHUB_ENV
